@@ -1,0 +1,116 @@
+# ── Alertmanager Configuration ────────────────────────────────────────────────
+# NetWatch Enterprise — Alert Routing & Notifications
+
+global:
+  # SMTP for email alerts — fill in your own details
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: 'alerts@your-domain.com'
+  smtp_auth_username: 'alerts@your-domain.com'
+  smtp_auth_password: 'YOUR_APP_PASSWORD'   # Use env var in production
+  smtp_require_tls: true
+
+  # Slack webhook — replace with your workspace hook
+  slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+
+# ── Inhibition Rules ──────────────────────────────────────────────────────────
+# Suppress warning alerts when a critical fires for the same host
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['host', 'job']
+
+# ── Templates ────────────────────────────────────────────────────────────────
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# ── Routing ──────────────────────────────────────────────────────────────────
+route:
+  receiver: 'default-receiver'
+  group_by: ['alertname', 'host', 'severity']
+  group_wait:      30s
+  group_interval:  5m
+  repeat_interval: 4h
+
+  routes:
+    # Critical alerts → page immediately
+    - match:
+        severity: critical
+      receiver: 'critical-receiver'
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # Infrastructure team alerts
+    - match:
+        team: infra
+      receiver: 'infra-team'
+      continue: true
+
+    # Dev team alerts
+    - match:
+        team: dev
+      receiver: 'dev-team'
+      continue: true
+
+    # Network team alerts
+    - match:
+        team: network
+      receiver: 'network-team'
+      continue: true
+
+# ── Receivers ────────────────────────────────────────────────────────────────
+receivers:
+
+  - name: 'default-receiver'
+    email_configs:
+      - to: 'ops-team@your-domain.com'
+        send_resolved: true
+        headers:
+          Subject: '[NetWatch] {{ .GroupLabels.alertname }} — {{ .Status | toUpper }}'
+        html: |
+          <h3>NetWatch Enterprise Alert</h3>
+          {{ range .Alerts }}
+          <p><b>{{ .Labels.alertname }}</b> — {{ .Labels.severity | toUpper }}</p>
+          <p>{{ .Annotations.description }}</p>
+          <p>Fired: {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}</p>
+          <hr>
+          {{ end }}
+
+  - name: 'critical-receiver'
+    email_configs:
+      - to: 'oncall@your-domain.com'
+        send_resolved: true
+    slack_configs:
+      - channel: '#alerts-critical'
+        send_resolved: true
+        title: '🚨 CRITICAL: {{ .GroupLabels.alertname }}'
+        text: |
+          *Host:* {{ .GroupLabels.host }}
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Detail:* {{ .Annotations.description }}
+          {{ end }}
+        color: 'danger'
+
+  - name: 'infra-team'
+    slack_configs:
+      - channel: '#infra-alerts'
+        send_resolved: true
+        title: '[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+        color: '{{ if eq .Status "firing" }}warning{{ else }}good{{ end }}'
+
+  - name: 'dev-team'
+    slack_configs:
+      - channel: '#dev-alerts'
+        send_resolved: true
+        title: '[{{ .Status | toUpper }}] App Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+
+  - name: 'network-team'
+    slack_configs:
+      - channel: '#network-alerts'
+        send_resolved: true
+        title: '[{{ .Status | toUpper }}] Network: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'

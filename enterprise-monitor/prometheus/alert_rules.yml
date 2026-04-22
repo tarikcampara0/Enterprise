@@ -1,0 +1,155 @@
+# ── Alerting Rules ────────────────────────────────────────────────────────────
+# NetWatch Enterprise — Prometheus Alert Rules
+
+groups:
+
+  # ── Node / Infrastructure ──────────────────────────────────────────────────
+  - name: infrastructure
+    rules:
+
+      - alert: HighCPUUsage
+        expr: node_cpu_usage_percent > 90
+        for: 2m
+        labels:
+          severity: critical
+          team: infra
+        annotations:
+          summary: "High CPU usage on {{ $labels.host }}"
+          description: >
+            CPU on {{ $labels.host }} has been above 90% for more than 2 minutes.
+            Current value: {{ $value | humanize }}%
+
+      - alert: WarningCPUUsage
+        expr: node_cpu_usage_percent > 70
+        for: 5m
+        labels:
+          severity: warning
+          team: infra
+        annotations:
+          summary: "Elevated CPU usage on {{ $labels.host }}"
+          description: "CPU on {{ $labels.host }} is at {{ $value | humanize }}%"
+
+      - alert: HighMemoryUsage
+        expr: node_memory_usage_percent > 90
+        for: 2m
+        labels:
+          severity: critical
+          team: infra
+        annotations:
+          summary: "High memory usage on {{ $labels.host }}"
+          description: "Memory on {{ $labels.host }} is at {{ $value | humanize }}%"
+
+      - alert: WarningMemoryUsage
+        expr: node_memory_usage_percent > 75
+        for: 5m
+        labels:
+          severity: warning
+          team: infra
+        annotations:
+          summary: "Elevated memory usage on {{ $labels.host }}"
+          description: "Memory on {{ $labels.host }} is at {{ $value | humanize }}%"
+
+      - alert: HighDiskUsage
+        expr: node_disk_usage_percent > 95
+        for: 1m
+        labels:
+          severity: critical
+          team: infra
+        annotations:
+          summary: "Disk almost full on {{ $labels.host }}:{{ $labels.mount }}"
+          description: >
+            Disk {{ $labels.mount }} on {{ $labels.host }} is at
+            {{ $value | humanize }}% capacity.
+
+      - alert: WarningDiskUsage
+        expr: node_disk_usage_percent > 80
+        for: 5m
+        labels:
+          severity: warning
+          team: infra
+        annotations:
+          summary: "Disk filling up on {{ $labels.host }}:{{ $labels.mount }}"
+          description: "Disk at {{ $value | humanize }}%"
+
+      - alert: HighNetworkInbound
+        expr: node_network_bytes_in > 95000000
+        for: 2m
+        labels:
+          severity: critical
+          team: network
+        annotations:
+          summary: "High inbound network traffic on {{ $labels.host }}"
+          description: "Inbound traffic: {{ $value | humanizeBytes }}/s"
+
+      - alert: HighNetworkOutbound
+        expr: node_network_bytes_out > 95000000
+        for: 2m
+        labels:
+          severity: critical
+          team: network
+        annotations:
+          summary: "High outbound network traffic on {{ $labels.host }}"
+          description: "Outbound traffic: {{ $value | humanizeBytes }}/s"
+
+  # ── Application ───────────────────────────────────────────────────────────
+  - name: application
+    rules:
+
+      - alert: AppHighErrorRate
+        expr: |
+          rate(app_http_requests_total{status=~"5.."}[5m]) /
+          rate(app_http_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          team: dev
+        annotations:
+          summary: "High HTTP error rate"
+          description: "Error rate is {{ $value | humanizePercentage }}"
+
+      - alert: AppSlowResponses
+        expr: |
+          histogram_quantile(0.95,
+            rate(app_response_time_seconds_bucket[5m])
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: warning
+          team: dev
+        annotations:
+          summary: "Slow API responses (p95 > 2s)"
+          description: "p95 latency: {{ $value | humanizeDuration }}"
+
+      - alert: ManyActiveAlerts
+        expr: sum(monitoring_active_alerts) > 10
+        for: 1m
+        labels:
+          severity: warning
+          team: infra
+        annotations:
+          summary: "Large number of active alerts"
+          description: "{{ $value }} active alerts in the monitoring system"
+
+  # ── Service availability ──────────────────────────────────────────────────
+  - name: availability
+    rules:
+
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: infra
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Target {{ $labels.instance }} has been down for 1 minute."
+
+      - alert: PrometheusTargetMissing
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: infra
+        annotations:
+          summary: "Prometheus scrape target missing"
+          description: "Target {{ $labels.instance }} ({{ $labels.job }}) not reachable."

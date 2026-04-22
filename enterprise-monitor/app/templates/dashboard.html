@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NetWatch Enterprise — Monitoring</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:          #080c10;
+    --surface:     #0d1117;
+    --surface2:    #161b22;
+    --surface3:    #1c2128;
+    --border:      #21262d;
+    --text:        #e6edf3;
+    --text-muted:  #7d8590;
+    --text-dim:    #484f58;
+    --green:       #3fb950;
+    --green-glow:  rgba(63,185,80,.18);
+    --yellow:      #d29922;
+    --yellow-glow: rgba(210,153,34,.15);
+    --red:         #f85149;
+    --red-glow:    rgba(248,81,73,.15);
+    --blue:        #58a6ff;
+    --blue-glow:   rgba(88,166,255,.12);
+    --cyan:        #39d0d8;
+    --accent:      #1f6feb;
+    --mono:        'IBM Plex Mono', monospace;
+    --sans:        'IBM Plex Sans', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { font-size: 14px; scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* scanline overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 2px,
+      rgba(0,0,0,.06) 2px, rgba(0,0,0,.06) 4px
+    );
+    pointer-events: none; z-index: 9999;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px; height: 56px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--mono); font-size: 15px; font-weight: 600;
+    letter-spacing: .06em; color: var(--text);
+  }
+  .logo-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: .5; transform: scale(.8); }
+  }
+  .header-right { display: flex; align-items: center; gap: 20px; }
+  #clock {
+    font-family: var(--mono); font-size: 12px; color: var(--text-muted);
+  }
+  .tag {
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    padding: 2px 8px; border-radius: 3px; letter-spacing: .1em;
+    background: var(--surface3); border: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+
+  /* ── Layout ── */
+  .main { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+
+  /* ── Summary Cards ── */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 20px;
+    position: relative; overflow: hidden;
+    transition: border-color .2s;
+  }
+  .stat-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  }
+  .stat-card.green::before { background: var(--green); }
+  .stat-card.yellow::before { background: var(--yellow); }
+  .stat-card.red::before { background: var(--red); }
+  .stat-card.blue::before { background: var(--blue); }
+  .stat-label {
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    color: var(--text-muted); letter-spacing: .1em; text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .stat-value {
+    font-family: var(--mono); font-size: 28px; font-weight: 600;
+    line-height: 1;
+  }
+  .stat-card.green .stat-value { color: var(--green); }
+  .stat-card.yellow .stat-value { color: var(--yellow); }
+  .stat-card.red .stat-value { color: var(--red); }
+  .stat-card.blue .stat-value { color: var(--blue); }
+  .stat-sub {
+    font-size: 11px; color: var(--text-dim); margin-top: 4px;
+  }
+
+  /* ── Section header ── */
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .section-title {
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--text-muted); display: flex; align-items: center; gap: 8px;
+  }
+  .section-title::before {
+    content: '//'; color: var(--text-dim);
+  }
+
+  /* ── Nodes Grid ── */
+  .nodes-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+  }
+  .node-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    position: relative;
+  }
+  .node-card:hover { border-color: #30363d; background: var(--surface2); }
+  .node-card.critical { border-left: 3px solid var(--red); }
+  .node-card.warning  { border-left: 3px solid var(--yellow); }
+  .node-card.healthy  { border-left: 3px solid var(--green); }
+
+  .node-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+  .node-name { font-size: 13px; font-weight: 500; }
+  .node-ip { font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+  .status-badge {
+    font-family: var(--mono); font-size: 9px; font-weight: 600;
+    letter-spacing: .1em; text-transform: uppercase;
+    padding: 3px 7px; border-radius: 3px;
+  }
+  .status-badge.healthy  { background: var(--green-glow); color: var(--green); border: 1px solid rgba(63,185,80,.3); }
+  .status-badge.warning  { background: var(--yellow-glow); color: var(--yellow); border: 1px solid rgba(210,153,34,.3); }
+  .status-badge.critical { background: var(--red-glow); color: var(--red); border: 1px solid rgba(248,81,73,.3); }
+
+  .metric-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .metric-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); width: 34px; }
+  .metric-bar-wrap { flex: 1; height: 4px; background: var(--surface3); border-radius: 2px; overflow: hidden; }
+  .metric-bar { height: 100%; border-radius: 2px; transition: width .6s ease; }
+  .metric-bar.ok       { background: var(--green); }
+  .metric-bar.warn     { background: var(--yellow); }
+  .metric-bar.crit     { background: var(--red); }
+  .metric-pct { font-family: var(--mono); font-size: 10px; width: 36px; text-align: right; }
+
+  /* ── Alerts Table ── */
+  .alerts-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .alerts-panel-header {
+    padding: 10px 16px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; padding: 8px 16px;
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--text-dim);
+    background: var(--surface2); border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 9px 16px; font-size: 12px;
+    border-bottom: 1px solid rgba(33,38,45,.8);
+    vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+  .severity-pill {
+    font-family: var(--mono); font-size: 9px; font-weight: 600;
+    padding: 2px 7px; border-radius: 3px; text-transform: uppercase; letter-spacing: .08em;
+  }
+  .severity-pill.critical { background: var(--red-glow); color: var(--red); border: 1px solid rgba(248,81,73,.3); }
+  .severity-pill.warning  { background: var(--yellow-glow); color: var(--yellow); border: 1px solid rgba(210,153,34,.3); }
+
+  .ack-btn {
+    font-family: var(--mono); font-size: 10px;
+    padding: 3px 10px; border-radius: 3px;
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-muted); cursor: pointer;
+    transition: border-color .2s, color .2s;
+  }
+  .ack-btn:hover { border-color: var(--blue); color: var(--blue); }
+  .ack-btn:disabled { opacity: .4; cursor: default; }
+  .acked { color: var(--text-dim); font-family: var(--mono); font-size: 10px; }
+
+  .empty-state {
+    padding: 32px; text-align: center;
+    font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+  }
+
+  /* ── Charts Section ── */
+  .charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 12px;
+  }
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+  }
+  .chart-title {
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+  .chart-wrap { position: relative; height: 140px; }
+
+  /* ── Node Detail Modal ── */
+  .modal-backdrop {
+    display: none; position: fixed; inset: 0;
+    background: rgba(8,12,16,.85); backdrop-filter: blur(4px);
+    z-index: 200; align-items: center; justify-content: center;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: min(680px, 95vw);
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .modal-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    position: sticky; top: 0; background: var(--surface);
+  }
+  .modal-title { font-size: 14px; font-weight: 500; }
+  .modal-close {
+    background: none; border: none; color: var(--text-muted);
+    font-size: 18px; cursor: pointer; padding: 0 4px;
+  }
+  .modal-body { padding: 20px; }
+
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+  .detail-item { background: var(--surface2); border-radius: 5px; padding: 12px; }
+  .detail-item-label { font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-bottom: 4px; }
+  .detail-item-value { font-family: var(--mono); font-size: 18px; font-weight: 600; }
+
+  .history-chart-wrap { height: 180px; position: relative; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── Refresh indicator ── */
+  .refresh-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--cyan); opacity: 0;
+    transition: opacity .3s;
+  }
+  .refresh-dot.active { opacity: 1; }
+
+  .footer {
+    text-align: center; padding: 20px;
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    border-top: 1px solid var(--border); margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    NETWATCH<span style="color:var(--text-muted);">/</span>ENTERPRISE
+  </div>
+  <div class="header-right">
+    <div class="refresh-dot" id="refreshDot"></div>
+    <div id="clock">--:--:--</div>
+    <div class="tag">v1.0.0</div>
+  </div>
+</header>
+
+<main class="main">
+
+  <!-- Summary row -->
+  <div class="summary-grid" id="summaryGrid">
+    <div class="stat-card green">
+      <div class="stat-label">Healthy Nodes</div>
+      <div class="stat-value" id="statHealthy">–</div>
+      <div class="stat-sub" id="statTotal">of – total</div>
+    </div>
+    <div class="stat-card yellow">
+      <div class="stat-label">Warning</div>
+      <div class="stat-value" id="statWarning">–</div>
+      <div class="stat-sub">nodes</div>
+    </div>
+    <div class="stat-card red">
+      <div class="stat-label">Critical</div>
+      <div class="stat-value" id="statCritical">–</div>
+      <div class="stat-sub">nodes</div>
+    </div>
+    <div class="stat-card red">
+      <div class="stat-label">Active Alerts</div>
+      <div class="stat-value" id="statAlerts">–</div>
+      <div class="stat-sub" id="statUnacked">– unacknowledged</div>
+    </div>
+    <div class="stat-card blue">
+      <div class="stat-label">Avg CPU</div>
+      <div class="stat-value" id="statCpu">–</div>
+      <div class="stat-sub">percent</div>
+    </div>
+    <div class="stat-card blue">
+      <div class="stat-label">Avg Memory</div>
+      <div class="stat-value" id="statMem">–</div>
+      <div class="stat-sub">percent</div>
+    </div>
+  </div>
+
+  <!-- Nodes -->
+  <div>
+    <div class="section-header">
+      <div class="section-title">Infrastructure Nodes</div>
+    </div>
+    <div class="nodes-grid" id="nodesGrid"></div>
+  </div>
+
+  <!-- Charts -->
+  <div>
+    <div class="section-header">
+      <div class="section-title">Cluster Overview</div>
+    </div>
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-title">Avg CPU % (last 60 samples)</div>
+        <div class="chart-wrap"><canvas id="cpuChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Avg Memory % (last 60 samples)</div>
+        <div class="chart-wrap"><canvas id="memChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Alert Count Over Time</div>
+        <div class="chart-wrap"><canvas id="alertChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Node Status Distribution</div>
+        <div class="chart-wrap"><canvas id="statusChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Alerts -->
+  <div>
+    <div class="section-header">
+      <div class="section-title">Active Alerts</div>
+    </div>
+    <div class="alerts-panel">
+      <div id="alertsBody"></div>
+    </div>
+  </div>
+
+</main>
+
+<div class="footer">
+  NETWATCH ENTERPRISE MONITORING SYSTEM &nbsp;·&nbsp; PROMETHEUS + FLASK + DOCKER &nbsp;·&nbsp;
+  <span id="footerUptime"></span>
+</div>
+
+<!-- Node Detail Modal -->
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitle">Node Detail</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+// ── Chart setup helpers ──────────────────────────────────────────────────────
+const CHART_DEFAULTS = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { display: false }, tooltip: { enabled: true } },
+  scales: {
+    x: { display: false },
+    y: {
+      display: true,
+      grid: { color: 'rgba(33,38,45,.5)', drawBorder: false },
+      ticks: { color: '#484f58', font: { family: "'IBM Plex Mono'", size: 10 }, maxTicksLimit: 4 },
+      border: { display: false }
+    }
+  },
+  elements: { point: { radius: 0 }, line: { tension: .4 } },
+  animation: false
+};
+
+function makeLineChart(id, color, max) {
+  const ctx = document.getElementById(id).getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{ data: [], borderColor: color, borderWidth: 1.5,
+      fill: true, backgroundColor: color.replace(')', ', 0.08)').replace('rgb', 'rgba') }] },
+    options: { ...CHART_DEFAULTS,
+      scales: { ...CHART_DEFAULTS.scales,
+        y: { ...CHART_DEFAULTS.scales.y, min: 0, max: max || undefined } } }
+  });
+}
+
+const cpuChart    = makeLineChart('cpuChart',   'rgb(88,166,255)', 100);
+const memChart    = makeLineChart('memChart',   'rgb(63,185,80)',  100);
+const alertChart  = makeLineChart('alertChart', 'rgb(248,81,73)');
+
+// Status doughnut
+const statusCtx = document.getElementById('statusChart').getContext('2d');
+const statusChart = new Chart(statusCtx, {
+  type: 'doughnut',
+  data: {
+    labels: ['Healthy', 'Warning', 'Critical'],
+    datasets: [{ data: [0,0,0],
+      backgroundColor: ['rgba(63,185,80,.7)', 'rgba(210,153,34,.7)', 'rgba(248,81,73,.7)'],
+      borderColor:     ['rgb(63,185,80)',      'rgb(210,153,34)',      'rgb(248,81,73)'],
+      borderWidth: 1, hoverOffset: 4 }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false, cutout: '68%',
+    plugins: {
+      legend: {
+        display: true, position: 'right',
+        labels: { color: '#7d8590', font: { family: "'IBM Plex Mono'", size: 10 }, boxWidth: 10, padding: 12 }
+      }
+    },
+    animation: false
+  }
+});
+
+// rolling buffers
+const cpuHistory   = [];
+const memHistory   = [];
+const alertHistory = [];
+const MAX_HIST     = 60;
+
+function pushHistory(arr, val) {
+  arr.push(val);
+  if (arr.length > MAX_HIST) arr.shift();
+}
+
+function updateLineChart(chart, arr) {
+  chart.data.labels   = arr.map((_, i) => i);
+  chart.data.datasets[0].data = arr;
+  chart.update('none');
+}
+
+// ── Metric bar color ─────────────────────────────────────────────────────────
+function barClass(pct) {
+  if (pct >= 90) return 'crit';
+  if (pct >= 70) return 'warn';
+  return 'ok';
+}
+
+// ── Nodes render ─────────────────────────────────────────────────────────────
+function renderNodes(nodes) {
+  const grid = document.getElementById('nodesGrid');
+  const existing = {};
+  grid.querySelectorAll('[data-node-id]').forEach(el => {
+    existing[el.dataset.nodeId] = el;
+  });
+
+  nodes.forEach(n => {
+    const m   = n.metrics || {};
+    const cpu = m.cpu     ?? 0;
+    const mem = m.memory  ?? 0;
+    const disk = Object.values(m.disk || {'/' : 0})[0] ?? 0;
+
+    const html = `
+      <div class="node-header">
+        <div>
+          <div class="node-name">${n.name}</div>
+          <div class="node-ip">${n.ip} &nbsp;·&nbsp; ${n.type}</div>
+        </div>
+        <span class="status-badge ${n.status}">${n.status}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">CPU</span>
+        <div class="metric-bar-wrap"><div class="metric-bar ${barClass(cpu)}" style="width:${cpu}%"></div></div>
+        <span class="metric-pct" style="color:${cpu>=90?'var(--red)':cpu>=70?'var(--yellow)':'var(--text-muted)'}">${cpu.toFixed(1)}%</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">MEM</span>
+        <div class="metric-bar-wrap"><div class="metric-bar ${barClass(mem)}" style="width:${mem}%"></div></div>
+        <span class="metric-pct" style="color:${mem>=90?'var(--red)':mem>=75?'var(--yellow)':'var(--text-muted)'}">${mem.toFixed(1)}%</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">DISK</span>
+        <div class="metric-bar-wrap"><div class="metric-bar ${barClass(disk)}" style="width:${disk}%"></div></div>
+        <span class="metric-pct" style="color:${disk>=95?'var(--red)':disk>=80?'var(--yellow)':'var(--text-muted)'}">${disk.toFixed(1)}%</span>
+      </div>
+    `;
+
+    if (existing[n.id]) {
+      existing[n.id].className = `node-card ${n.status}`;
+      existing[n.id].innerHTML = html;
+    } else {
+      const card = document.createElement('div');
+      card.className = `node-card ${n.status}`;
+      card.dataset.nodeId = n.id;
+      card.innerHTML = html;
+      card.onclick = () => openNodeModal(n.id);
+      grid.appendChild(card);
+    }
+  });
+}
+
+// ── Summary ──────────────────────────────────────────────────────────────────
+function renderSummary(s) {
+  document.getElementById('statHealthy').textContent  = s.nodes.healthy;
+  document.getElementById('statWarning').textContent  = s.nodes.warning;
+  document.getElementById('statCritical').textContent = s.nodes.critical;
+  document.getElementById('statTotal').textContent    = `of ${s.nodes.total} total`;
+  document.getElementById('statAlerts').textContent   = s.alerts.total;
+  document.getElementById('statUnacked').textContent  = `${s.alerts.unacked} unacknowledged`;
+  document.getElementById('statCpu').textContent      = `${s.avg_cpu}%`;
+  document.getElementById('statMem').textContent      = `${s.avg_memory}%`;
+  document.getElementById('footerUptime').textContent = `UPTIME ${fmtUptime(s.uptime)}`;
+
+  statusChart.data.datasets[0].data = [s.nodes.healthy, s.nodes.warning, s.nodes.critical];
+  statusChart.update('none');
+
+  pushHistory(cpuHistory,   s.avg_cpu);
+  pushHistory(memHistory,   s.avg_memory);
+  pushHistory(alertHistory, s.alerts.total);
+  updateLineChart(cpuChart,   cpuHistory);
+  updateLineChart(memChart,   memHistory);
+  updateLineChart(alertChart, alertHistory);
+}
+
+function fmtUptime(s) {
+  const d = Math.floor(s/86400), h = Math.floor((s%86400)/3600),
+        m = Math.floor((s%3600)/60), ss = s%60;
+  return `${d}d ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+}
+
+// ── Alerts ───────────────────────────────────────────────────────────────────
+function renderAlerts(alerts) {
+  const body = document.getElementById('alertsBody');
+  if (!alerts.length) {
+    body.innerHTML = '<div class="empty-state">// NO ACTIVE ALERTS — ALL SYSTEMS NOMINAL</div>';
+    return;
+  }
+  const rows = alerts.map(a => `
+    <tr>
+      <td><span class="severity-pill ${a.severity}">${a.severity}</span></td>
+      <td>${a.node_name}</td>
+      <td style="font-family:var(--mono);font-size:11px">${a.label}</td>
+      <td style="font-family:var(--mono);color:${a.severity==='critical'?'var(--red)':'var(--yellow)'}">${a.value.toFixed(1)}%</td>
+      <td style="font-family:var(--mono);font-size:10px;color:var(--text-dim)">${a.timestamp.slice(11,19)} UTC</td>
+      <td>
+        ${a.acknowledged
+          ? `<span class="acked">✓ acked</span>`
+          : `<button class="ack-btn" onclick="ackAlert('${a.id}',this)">ACK</button>`}
+      </td>
+    </tr>
+  `).join('');
+  body.innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Severity</th><th>Node</th><th>Metric</th>
+        <th>Value</th><th>Time</th><th>Action</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function ackAlert(id, btn) {
+  btn.disabled = true;
+  await fetch(`/api/alerts/${id}/acknowledge`, { method: 'POST' });
+  refresh();
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+let modalChart = null;
+
+async function openNodeModal(nodeId) {
+  const res  = await fetch(`/api/nodes/${nodeId}`);
+  const node = await res.json();
+  const m    = node.metrics || {};
+
+  document.getElementById('modalTitle').textContent = node.name;
+  document.getElementById('modalBody').innerHTML = `
+    <div class="detail-grid">
+      <div class="detail-item">
+        <div class="detail-item-label">CPU</div>
+        <div class="detail-item-value" style="color:${m.cpu>=90?'var(--red)':m.cpu>=70?'var(--yellow)':'var(--green)'}">${(m.cpu||0).toFixed(1)}%</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-item-label">Memory</div>
+        <div class="detail-item-value" style="color:${m.memory>=90?'var(--red)':m.memory>=75?'var(--yellow)':'var(--green)'}">${(m.memory||0).toFixed(1)}%</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-item-label">Disk (/)</div>
+        <div class="detail-item-value" style="color:var(--blue)">${(Object.values(m.disk||{'/' :0})[0]||0).toFixed(1)}%</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-item-label">Uptime</div>
+        <div class="detail-item-value" style="color:var(--cyan);font-size:13px">${fmtUptime(m.uptime||0)}</div>
+      </div>
+    </div>
+    <div class="chart-title" style="margin-bottom:10px">CPU History</div>
+    <div class="history-chart-wrap"><canvas id="modalChartCanvas"></canvas></div>
+  `;
+
+  const hist   = (node.history || []).map(h => h.cpu);
+  const labels = hist.map((_, i) => i);
+  if (modalChart) modalChart.destroy();
+  const ctx = document.getElementById('modalChartCanvas').getContext('2d');
+  modalChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: hist, borderColor: 'rgb(88,166,255)', borderWidth: 1.5,
+        fill: true, backgroundColor: 'rgba(88,166,255,0.08)',
+        tension: .4, pointRadius: 0
+      }]
+    },
+    options: { ...CHART_DEFAULTS,
+      scales: { ...CHART_DEFAULTS.scales, y: { ...CHART_DEFAULTS.scales.y, min: 0, max: 100 } } }
+  });
+
+  document.getElementById('modalBackdrop').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modalBackdrop').classList.remove('open');
+  if (modalChart) { modalChart.destroy(); modalChart = null; }
+}
+
+document.getElementById('modalBackdrop').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+
+// ── Clock ────────────────────────────────────────────────────────────────────
+function updateClock() {
+  document.getElementById('clock').textContent =
+    new Date().toUTCString().slice(17, 25) + ' UTC';
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── Refresh ───────────────────────────────────────────────────────────────────
+async function refresh() {
+  const dot = document.getElementById('refreshDot');
+  dot.classList.add('active');
+  try {
+    const [nodesRes, alertsRes, summaryRes] = await Promise.all([
+      fetch('/api/nodes'), fetch('/api/alerts'), fetch('/api/summary')
+    ]);
+    const [nodes, alerts, summary] = await Promise.all([
+      nodesRes.json(), alertsRes.json(), summaryRes.json()
+    ]);
+    renderNodes(nodes);
+    renderAlerts(alerts);
+    renderSummary(summary);
+  } catch(e) { console.error('Refresh failed:', e); }
+  setTimeout(() => dot.classList.remove('active'), 300);
+}
+
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>
